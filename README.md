@@ -1,4 +1,4 @@
-# EdgeVL
+# qwen-vl-rk3588
 
 Qwen2.5-VL-3B 在 RK3588 上的离线部署。输入一张图片和一句问题，模型在板子的 NPU 上直接推理出答案，全程不联网。
 
@@ -78,7 +78,7 @@ aarch64-linux-gnu-strip VLM_NPU_stb
 ## 目录
 
 ```
-EdgeVL/
+qwen-vl-rk3588/
 ├── CMakeLists.txt
 ├── build.sh              # 交叉编译
 ├── run_board.sh          # 板端启动
