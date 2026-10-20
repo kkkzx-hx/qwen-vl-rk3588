@@ -1,6 +1,5 @@
 #!/bin/sh
 set -e
-mount | grep -q "/mnt type nfs" || mount -t nfs -o nolock,nfsvers=3 192.168.1.x:/home/<用户名>/rk3588_nfs /mnt
 
 DIR=/mnt/qwen_vl
 MODELS=/root/qwen_models

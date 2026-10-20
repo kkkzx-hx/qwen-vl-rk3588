@@ -1,19 +1,10 @@
 # EdgeVL
 
-在 RK3588 开发板上部署 Qwen2.5-VL-3B 多模态大模型：输入图片和问题，本地 NPU 直接推理出答案。全程离线，数据不出设备。
+Qwen2.5-VL-3B 在 RK3588 上的离线部署。输入一张图片和一句问题，模型在板子的 NPU 上直接推理出答案，全程不联网。
 
-## 功能
+## 能做什么
 
-- 图片 + 文字问题 → 模型作答，一条命令跑通
-- 模型拆成视觉编码器和语言模型两部分，分别用 FP16 和 W8A8 量化后跑在 NPU 上
-- 纯 C++17 实现，推理核心封装成类，方便复用
-- 部署过程中解决了交叉编译、动态库、大文件传输等一堆实际问题
-
-## 效果
-
-![运行效果](images/demo.png)
-
-板子上跑起来后，用 `<image>` 标签开头提问，模型会根据图片内容回答：
+给一张图，用 `<image>` 开头提问，模型会读出图里的内容并回答。跑起来是这样：
 
 ```
 User: <image>
@@ -21,81 +12,86 @@ User: <image>
 AI  : 图中是一轮满月，悬挂在夜空中……
 ```
 
-## 技术方案
+板端实际运行（测试图 `images/Moon.jpg`）：
+
+![运行效果](images/demo.png)
+
+## 结构
 
 ```
-图片输入 → 视觉编码器(ViT, RKNN/FP16) → 语言模型(RKLLM/W8A8) → 文本回答
-               （全部在 RK3588 NPU 本地推理）
+图片 → 视觉编码器（ViT，RKNN/FP16）→ 语言模型（RKLLM/W8A8）→ 文本
+                全部在 RK3588 NPU 上执行
 ```
 
-Qwen2.5-VL-3B 拆成两段：视觉部分用 FP16 精度转成 NPU 格式（RKNN），语言部分做 W8A8 量化后走 RKLLM 运行时。
+Qwen2.5-VL-3B 拆成两段处理：视觉部分用 FP16 转成 RKNN 格式，语言部分做 W8A8 量化后交给 RKLLM 运行时。视觉编码器保留 FP16 是因为它对精度更敏感，一并压到 8bit 掉点明显。
 
-## 编译运行
+推理核心用 C++17 写成一个类，主程序只负责读图、组 prompt、打印结果。
 
-环境：
-- RK3588 开发板（Buildroot）
-- `aarch64-linux-gnu-g++` 交叉编译器
-- rknpu 驱动 + rkllm-runtime
+## 编译
 
-交叉编译：
+需要的东西：
+
+- RK3588 开发板，Buildroot 系统
+- `aarch64-linux-gnu-g++`
+- rknpu 驱动和 rkllm-runtime
+
+用 CMake 和随仓库提供的 toolchain 文件：
 
 ```bash
-aarch64-linux-gnu-g++ -std=c++17 -O3 \
-  -I include -I /usr/include/opencv4 \
-  src/main.cpp src/RK35llm.cpp \
-  ./lib/libopencv_core.so ./lib/libopencv_imgcodecs.so ./lib/libopencv_imgproc.so \
-  ./lib/libpng16.so.16 ./lib/libz.so.1 \
-  ./lib/librknnrt.so ./lib/librkllmrt.so \
-  ./lib/libgomp.so.1 \
-  -ldl -lpthread \
+JOBS=8 ./build.sh
+```
+
+也可以手工编：
+
+```bash
+aarch64-linux-gnu-g++ -std=c++17 -O3 \\
+  -I include -I /usr/include/opencv4 \\
+  src/main.cpp src/RK35llm.cpp \\
+  ./lib/libopencv_core.so ./lib/libopencv_imgcodecs.so ./lib/libopencv_imgproc.so \\
+  ./lib/libpng16.so.16 ./lib/libz.so.1 \\
+  ./lib/librknnrt.so ./lib/librkllmrt.so \\
+  ./lib/libgomp.so.1 \\
+  -ldl -lpthread \\
   -o VLM_NPU_stb
 aarch64-linux-gnu-strip VLM_NPU_stb
 ```
 
-板端运行：
+## 运行
+
+模型文件约 4.9GB，没进仓库，下载地址见 `docs/`。放到板子上之后：
 
 ```bash
-./run_board.sh              # 默认测试图片
-./run_board.sh /root/xxx.jpg  # 指定图片
+./run_board.sh                  # 用仓库里的测试图
+./run_board.sh /root/xxx.jpg    # 用指定图片
 ```
 
-提问时，图片相关问题以 `<image>` 标签开头。
+## 部署时遇到的问题
 
-## 几个关键点
+| 现象 | 原因 | 处理 |
+|---|---|---|
+| `rkllm init` 卡住不返回 | 从 NFS 读大文件进了内核不可中断等待 | 模型改放板子本地 |
+| 传模型时 Connection reset | 板子网络大流量下不稳 | 拆成 200MB 分块传再合并 |
+| `cvtColor` 报 `!_src.empty()` | 板端 OpenCV 编译时没带 libjpeg | 换成 header-only 的 stb_image 读图 |
+| `invalid rkllm model` | 之前下载中断，文件不完整 | 重新下载并核对文件大小 |
+| 加载共享库失败 | `LD_LIBRARY_PATH` 里运行时库排在系统库后面 | 把运行时库目录提到最前 |
 
-1. **模型量化**：语言模型做 W8A8 对称量化（权重和激活都压到 8bit），视觉编码器保留 FP16，避免量化损失影响图像理解。
-2. **NPU 推理**：模型完整跑在 NPU 上，模型文件放板子本地，绕开 NFS 读大文件卡死的问题。
-3. **读图**：板子上的 OpenCV 没有 JPEG 解码器，`cv::imread` 用不了，改用 header-only 的 stb_image，零依赖。
-4. **传模型**：2GB+ 的文件 NFS/SCP 直传容易断，拆成 200MB 分块传再合并。
-
-## 踩坑记录
-
-| 问题 | 原因 | 解决 |
-|------|------|------|
-| `rkllm init` 卡死不响应 | NFS 读大文件进内核不可中断等待 | 模型放板子本地 |
-| 传大文件 Connection reset | 板子网络大流量不稳定 | 200MB 分块传输 |
-| `!_src.empty()` in cvtColor | OpenCV 缺 libjpeg | stb_image 替代 |
-| `invalid rkllm model` | 模型下载中断损坏 | 重新下载并校验大小 |
-| shared libraries 加载报错 | LD_LIBRARY_PATH 顺序不对 | 运行时库放最前 |
-
-## 目录结构
+## 目录
 
 ```
 EdgeVL/
-├── VLM_NPU_stb            # 编译产物（ARM64）
 ├── CMakeLists.txt
-├── build.sh               # 交叉编译脚本
-├── run_board.sh           # 板端运行脚本
-├── src/                   # main.cpp / RK35llm.cpp / capture.cpp
-├── include/               # 头文件
-├── lib/                   # 板端运行时 .so
-├── models/                # 模型文件（太大，没进仓库）
-├── images/                # 测试图片
-└── docs/                  # 开发文档
+├── build.sh              # 交叉编译
+├── run_board.sh          # 板端启动
+├── src/                  # main.cpp / RK35llm.cpp / capture.cpp
+├── include/
+├── lib/                  # 板端运行时 .so
+├── 3rdparty/             # stb_image 等
+├── images/               # 测试图
+└── docs/                 # 开发笔记、模型下载说明
 ```
 
-模型文件约 4.9GB，没进仓库，下载说明见 `docs/`。
+`lib/` 里的 `.so` 都是从板端 Buildroot rootfs 提取的 aarch64 运行时库：`librknnrt.so` / `librkllmrt.so` 是 Rockchip 的 NPU 运行时（rknpu 0.9.8），OpenCV / png / zlib 是板端自带的系统库，`libgomp.so.1` 是板端缺失、单独补上的 OpenMP 库。
 
-## 许可证
+## License
 
-[MIT](LICENSE)
+MIT

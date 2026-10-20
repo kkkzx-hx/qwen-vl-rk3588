@@ -150,7 +150,6 @@ powershell -File E:\1\fix_nfs_portproxy.ps1
 ## 板子挂载命令
 
 ```bash
-mount -t nfs -o nolock,nfsvers=3 192.168.1.x:/home/<用户名>/rk3588_nfs /mnt
 ls /mnt/   # 验证
 ```
 
