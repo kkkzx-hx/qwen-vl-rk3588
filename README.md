@@ -52,13 +52,13 @@ aarch64-linux-gnu-g++ -std=c++17 -O3 \\
   ./lib/librknnrt.so ./lib/librkllmrt.so \\
   ./lib/libgomp.so.1 \\
   -ldl -lpthread \\
-  -o VLM_NPU_stb
-aarch64-linux-gnu-strip VLM_NPU_stb
+  -o VLM_NPU
+aarch64-linux-gnu-strip VLM_NPU
 ```
 
 ## 运行
 
-模型文件约 4.9GB，没进仓库，下载地址见 `docs/`。放到板子上之后：
+模型文件约 4.9GB，没进仓库，需自行用 rkllm-toolkit 把 Qwen2.5-VL-3B 转成 rknn（视觉）和 rkllm（语言）格式，放到板子本地后：
 
 ```bash
 ./run_board.sh                  # 用仓库里的测试图
@@ -82,7 +82,7 @@ qwen-vl-rk3588/
 ├── CMakeLists.txt
 ├── build.sh              # 交叉编译
 ├── run_board.sh          # 板端启动
-├── src/                  # main.cpp / RK35llm.cpp / capture.cpp
+├── src/                  # main.cpp / RK35llm.cpp（capture.cpp 为实验代码，不参与构建）
 ├── include/
 ├── lib/                  # 板端运行时 .so
 ├── 3rdparty/             # stb_image 等

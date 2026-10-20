@@ -20,7 +20,7 @@ echo " 模型: $MODELS"
 echo " <image> + 问题 或 exit 退出"
 echo "=========================================="
 
-exec "$DIR/VLM_NPU_stb" "$IMAGE" \
+exec "$DIR/VLM_NPU" "$IMAGE" \
     "$MODELS/qwen2.5-vl-3b_vision_rk3588.rknn" \
     "$MODELS/qwen2.5-vl-3b-instruct_w8a8_rk3588.rkllm" \
     512 2048

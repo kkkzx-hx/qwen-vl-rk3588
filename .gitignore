@@ -17,4 +17,5 @@ build/
 
 # 编译产物（ARM64，他人机器上无法运行）
 VLM_NPU_stb
+VLM_NPU
 capture
